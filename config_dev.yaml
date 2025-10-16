@@ -13,7 +13,7 @@ bfc:
 
 # Benfen RPC 配置
 benfen_rpc:
-  url: "http://10.10.2.140:9000/"
+  url: "http://10.10.2.139:9000/"
   timeout: 30
   retry_count: 3
 
@@ -35,4 +35,4 @@ cleanup:
 # 日志配置
 log:
   level: info
-  file: "/data/obc_coin_api/logs/app.log"
+  file: "./logs/app.log"

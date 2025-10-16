@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"io"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // TokenRequest 定义添加代币的请求结构
@@ -29,6 +31,23 @@ type TokenResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+// validateField 验证字段是否包含特殊字符和长度限制
+func validateField(field, fieldName string) error {
+	// 检查长度限制
+	if len(field) > 20 {
+		return fmt.Errorf("%s 长度不能超过20个字符", fieldName)
+	}
+	
+	// 检查是否包含空格、回车、制表符等特殊字符
+	for _, char := range field {
+		if unicode.IsSpace(char) {
+			return fmt.Errorf("%s 不能包含空格、回车、制表符等特殊字符", fieldName)
+		}
+	}
+	
+	return nil
 }
 
 // addToken 处理添加代币的请求
@@ -52,6 +71,39 @@ func addToken(w http.ResponseWriter, r *http.Request) {
 		response := TokenResponse{
 			Success: false,
 			Message: "Symbol 和 Name 字段不能为空",
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// 验证 Symbol 字段
+	if err := validateField(req.Symbol, "Symbol"); err != nil {
+		response := TokenResponse{
+			Success: false,
+			Message: err.Error(),
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// 验证 Name 字段
+	if err := validateField(req.Name, "Name"); err != nil {
+		response := TokenResponse{
+			Success: false,
+			Message: err.Error(),
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// 校验 Decimal 不大于 1
+	if req.Decimal > 10 {
+		response := TokenResponse{
+			Success: false,
+			Message: "Decimal 不能大于 10",
 		}
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(response)
@@ -86,7 +138,7 @@ func addToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 打印编译输出
-	fmt.Printf("编译输出:\n%s\n", compileOutput)
+	log.Printf("编译输出:\n%s\n", compileOutput)
 
 	// 解析编译输出
 	modules, dependencies, err := parseCompileOutput(compileOutput)
@@ -182,6 +234,7 @@ func processTemplate(req TokenRequest) (string, error) {
 	// 处理 JSONTMP - 直接使用 custom_info 字段（它本身就是 JSON 字符串）
 	// 对 custom_info 中的双引号进行转义
 	customInfoEscaped := strings.ReplaceAll(req.CustomInfo, "\"", "\\\"")
+	fmt.Println("customInfoEscaped:", customInfoEscaped)
 	content = strings.ReplaceAll(content, "JSONTMP", customInfoEscaped)
 
 	// 生成输出文件路径（在复制的目录中）
@@ -208,6 +261,7 @@ func compileMoveProject(projectDir string) (string, error) {
 	// 执行命令并获取输出
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+	    log.Fatalf("编译命令输出: %s, %v", string(output), err)
 		return "", fmt.Errorf("编译失败: %v, 输出: %s", err, string(output))
 	}
 
@@ -300,6 +354,7 @@ type PublishRequest struct {
 	Sender          string        `json:"sender"`
 	CompiledModules []interface{} `json:"compiled_modules"`
 	Dependencies    []interface{} `json:"dependencies"`
+	Gas             string        `json:"gas,omitempty"`
 	GasBudget       string        `json:"gas_budget"`
 }
 
@@ -324,7 +379,7 @@ func publishToken(w http.ResponseWriter, r *http.Request) {
 		"jsonrpc": "2.0",
 		"id":      "1",
 		"method":  "unsafe_publish",
-		"params":  []interface{}{req.Sender, req.CompiledModules, req.Dependencies, nil, req.GasBudget},
+		"params":  []interface{}{req.Sender, req.CompiledModules, req.Dependencies, req.Gas, req.GasBudget},
 	}
 
 	// 序列化请求体
